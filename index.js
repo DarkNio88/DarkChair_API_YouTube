@@ -134,7 +134,6 @@ function stream(url, opts = {}) {
           console.warn('darkchair_api_youtube: getInfo failed while selecting format, falling back', e && e.message ? e.message : e);
         }
       }
-
       if (!fmtToUse) fmtToUse = fallbacks[0];
       trySpawn(fmtToUse);
     } catch (e) {
@@ -142,7 +141,6 @@ function stream(url, opts = {}) {
       trySpawn(fallbacks[0]);
     }
   })();
-
   return { stream: outStream, proc: { current: () => currentProc } };
 }
 
