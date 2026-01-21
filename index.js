@@ -205,7 +205,6 @@ function createAuthApp() {
   const SESSIONS = new Map();
   const ACCESS_LOG = [];
   const ACCESS_LOG_PATH = path.join(PROJECT_ROOT, 'auth_access.log');
-
   function _getRemoteIp(req) {
     const xf = req.headers && (req.headers['x-forwarded-for'] || req.headers['X-Forwarded-For']);
     if (xf && typeof xf === 'string') return xf.split(',')[0].trim();
@@ -300,7 +299,27 @@ function createAuthApp() {
       }
     } catch (e) {}
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    return res.end(`<!doctype html><html><head><meta charset="utf-8"><title>Login</title></head><body style="font-family:system-ui,Arial;margin:20px"><h3>Auth UI Login</h3><form method="POST" action="/auth/ui/login"><div style="margin-bottom:8px"><input name="username" type="text" placeholder="Username" style="padding:8px;width:300px" /></div><div style="margin-bottom:8px"><input name="password" type="password" placeholder="Password" style="padding:8px;width:300px" /></div><button type="submit" style="padding:8px 12px">Login</button></form></body></html>`);
+    return res.end(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Login</title>
+        </head>
+        <body style="font-family:system-ui,Arial;margin:20px">
+          <h3>Auth UI Login</h3>
+          <form method="POST" action="/auth/ui/login">
+            <div style="margin-bottom:8px">
+              <input name="username" type="text" placeholder="Username" style="padding:8px;width:300px" />
+            </div>
+            <div style="margin-bottom:8px">
+              <input name="password" type="password" placeholder="Password" style="padding:8px;width:300px" />
+            </div>
+            <button type="submit" style="padding:8px 12px">Login</button>
+          </form>
+        </body>
+      </html>
+      `);
   });
 
   app.use('/auth/ui', express.static(path.join(__dirname, 'public'), { dotfiles: 'ignore' }));
