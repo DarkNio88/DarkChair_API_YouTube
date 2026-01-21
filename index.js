@@ -8,17 +8,10 @@ const { PassThrough } = require('stream');
 const fs = require('fs');
 const path = require('path');
 
-// Debug: show where the process is running from and the module dir
-try {
-  console.log('darkchair_api_yt: startup __dirname=', process.cwd(), 'process.cwd()=', process.cwd());
-} catch (e) {}
-
-
 function _cookiesArg(opts = {}) {
-  // Prefer cookies file from the current working directory (process root)
   const cwdCookies = path.join(process.cwd(), 'cookies.txt');
   if (fs.existsSync(cwdCookies)) {
-    console.log('darkchair_api_yt: using cookies.txt from process.cwd():', cwdCookies);
+    console.log('darkchair_api_youtube: using cookies.txt from process.cwd():', cwdCookies);
     const useFromBrowser = (process.env.USE_COOKIES_FROM_BROWSER === '1' || process.env.USE_COOKIES_FROM_BROWSER === 'true');
     if (useFromBrowser) {
       const product = process.env.PUPPETEER_PRODUCT || 'firefox';
@@ -27,8 +20,6 @@ function _cookiesArg(opts = {}) {
     return ['--cookies', cwdCookies];
   }
 
-  // Determine project root: parent of this module. If installed under node_modules,
-  // treat the directory above node_modules as the project root.
   let projectRoot = path.resolve(process.cwd(), '..');
   try {
     const parts = projectRoot.split(path.sep);
@@ -37,16 +28,12 @@ function _cookiesArg(opts = {}) {
       projectRoot = parts.slice(0, nmIndex).join(path.sep) || path.sep;
     }
   } catch (e) {}
-  console.log('darkchair_api_yt: determined project root as', projectRoot);
-
-  // Default cookies path is projectRoot/cookies.txt
+  console.log('darkchair_api_youtube: determined project root as', projectRoot);
   let cookiesPath = path.join(projectRoot, 'cookies.txt');
   if (!fs.existsSync(cookiesPath)) {
-    console.error('darkchair_api_yt: cookies.txt non trovato (checked):', cookiesPath);
+    console.error('darkchair_api_youtube: cookies.txt non trovato (checked):', cookiesPath);
   }
 
-  // By default prefer using an explicit cookies file written by the auth UI (`--cookies`)
-  // Set USE_COOKIES_FROM_BROWSER=1 to also ask yt-dlp to extract from an installed browser profile.
   const useFromBrowser = (process.env.USE_COOKIES_FROM_BROWSER === '1' || process.env.USE_COOKIES_FROM_BROWSER === 'true');
   if (useFromBrowser) {
     const product = process.env.PUPPETEER_PRODUCT || 'firefox';
@@ -65,13 +52,8 @@ function isAvailable() {
 
 function stream(url, opts = {}) {
   const preferred = opts.format || null; // allow caller to pass a specific format id or expression
-  const fallbacks = [
-    'bestaudio/best',
-    'bestaudio',
-    'best'
-  ];
+  const fallbacks = ['bestaudio/best','bestaudio','best'];
   const cookies = _cookiesArg(opts);
-
   const outStream = new PassThrough();
   let tried = 0;
   let currentProc = null;
@@ -83,17 +65,15 @@ function stream(url, opts = {}) {
     currentProc = proc;
 
     proc.on('error', (e) => {
-      console.error('darkchair_api_yt: yt-dlp spawn error for', url, e && e.message ? e.message : e);
+      console.error('darkchair_api_youtube: yt-dlp spawn error for', url, e && e.message ? e.message : e);
     });
 
     proc.stderr.on('data', (d) => {
       const msg = String(d).trim();
-      if (msg) console.error('darkchair_api_yt yt-dlp stderr:', msg);
+      if (msg) console.error('darkchair_api_youtube yt-dlp stderr:', msg);
     });
 
-    // pipe stdout into our pass-through without ending it (we manage end)
     if (proc.stdout) proc.stdout.pipe(outStream, { end: false });
-
     proc.on('close', (code, signal) => {
       if (code === 0) {
         try { outStream.end(); } catch (e) {}
@@ -101,22 +81,19 @@ function stream(url, opts = {}) {
         tried += 1;
         if (tried < fallbacks.length) {
           const nextFmt = fallbacks[tried];
-          console.warn('darkchair_api_yt: format failed, retrying with', nextFmt);
+          console.warn('darkchair_api_youtube: format failed, retrying with', nextFmt);
           trySpawn(nextFmt);
         } else {
-          console.error(`darkchair_api_yt: yt-dlp exited with code=${code} signal=${signal} for ${url}`);
+          console.error(`darkchair_api_youtube: yt-dlp exited with code=${code} signal=${signal} for ${url}`);
           try { outStream.end(); } catch (e) {}
         }
       }
     });
-
     return proc;
   };
 
-  // Helper: pick best audio-only format from yt-dlp info
   const pickBestAudioFormat = (formats) => {
     if (!Array.isArray(formats) || formats.length === 0) return null;
-    // prefer audio-only formats (vcodec none) and prioritize by extension and bitrate
     const preferExts = ['opus', 'webm', 'm4a', 'mp3'];
     const audioOnly = formats.filter(f => {
       try {
@@ -139,18 +116,14 @@ function stream(url, opts = {}) {
     return audioOnly[0] && (audioOnly[0].format_id || audioOnly[0].format) ? (audioOnly[0].format_id || audioOnly[0].format) : null;
   };
 
-  // asynchronously choose format via getInfo, then spawn yt-dlp
   (async () => {
     try {
       let fmtToUse = null;
-      // If caller passed a numeric/explicit format id, use it directly
       if (preferred && /^\d+$/.test(String(preferred))) {
         fmtToUse = String(preferred);
       } else if (preferred && typeof preferred === 'string') {
-        // if preferred looks like a full yt-dlp expression, try it first
         fmtToUse = preferred;
       } else {
-        // try to select best audio format using getInfo
         try {
           const info = await getInfo(url);
           if (info && Array.isArray(info.formats)) {
@@ -158,18 +131,14 @@ function stream(url, opts = {}) {
             if (picked) fmtToUse = picked;
           }
         } catch (e) {
-          // fall through to default
-          console.warn('darkchair_api_yt: getInfo failed while selecting format, falling back', e && e.message ? e.message : e);
+          console.warn('darkchair_api_youtube: getInfo failed while selecting format, falling back', e && e.message ? e.message : e);
         }
       }
 
-      // fallback to generic expressions if selection failed
       if (!fmtToUse) fmtToUse = fallbacks[0];
-
       trySpawn(fmtToUse);
     } catch (e) {
-      console.error('darkchair_api_yt: async format selection error', e && e.message ? e.message : e);
-      // as a last resort start with the generic format
+      console.error('darkchair_api_youtube: async format selection error', e && e.message ? e.message : e);
       trySpawn(fallbacks[0]);
     }
   })();
@@ -182,7 +151,7 @@ async function getInfo(url, opts = {}) {
     const args = ['--dump-json', '--js-runtimes', 'node', '--no-playlist', '--no-warnings', url];
     const cookies = _cookiesArg(opts);
     if (cookies.length) args.splice(0, 0, ...cookies);
-    console.log('darkchair_api_yt: getInfo spawn yt-dlp with args:', args.join(' '));
+    console.log('darkchair_api_youtube: getInfo spawn yt-dlp with args:', args.join(' '));
     const proc = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     proc.stdout.on('data', (d) => { out += d.toString(); });
@@ -195,14 +164,9 @@ async function getInfo(url, opts = {}) {
   });
 }
 
-// isAuthenticated removed: avoid running yt-dlp format selection during auth checks
-
-// --- Auth server integration (lazy-loads puppeteer to avoid heavy startup) ---
 const express = require('express');
 const crypto = require('crypto');
-// Project root is parent of this module
 const PROJECT_ROOT = path.resolve(process.cwd(), '..');
-// Prepend project root to PATH so a local downloaded `yt-dlp` binary is discovered by child_process.spawn('yt-dlp')
 try {
   const sep = path.delimiter || ':';
   if (!process.env.PATH || !process.env.PATH.split(sep).includes(PROJECT_ROOT)) {
@@ -210,17 +174,14 @@ try {
   }
 } catch (e) {}
 const COOKIES_FILE = path.join(PROJECT_ROOT, 'cookies.txt');
-
 function makeId() { return crypto.randomBytes(6).toString('hex'); }
-
 function cookiesToNetscape(cookies) {
-  const lines = ['# Netscape HTTP Cookie File', '# Generated by darkchair_api_yt/index.js'];
+  const lines = ['# Netscape HTTP Cookie File', '# Generated by darkchair_api_youtube/index.js'];
   for (const c of cookies) {
     const domain = c.domain || c.hostname || '';
     const flag = domain.startsWith('.') ? 'TRUE' : 'FALSE';
     const pathVal = c.path || '/';
     const secure = c.secure ? 'TRUE' : 'FALSE';
-    // Some cookie sources use -1 or invalid expires; Netscape format expects a non-negative integer
     const rawExpires = (typeof c.expires === 'number') ? Math.floor(c.expires) : 0;
     const expires = rawExpires > 0 ? rawExpires : 0;
     const name = c.name || c.key || '';
@@ -233,7 +194,6 @@ function cookiesToNetscape(cookies) {
 function createAuthApp() {
   const app = express();
   app.use(express.json());
-  // Basic protection: deny attempts to access dotfiles or traverse paths
   app.use((req, res, next) => {
     try {
       const orig = req.originalUrl || req.url || '';
@@ -243,10 +203,8 @@ function createAuthApp() {
     } catch (e) {}
     return next();
   });
-  // simple UI auth sessions (token -> { createdAt, username })
   const UI_SESSIONS = new Map();
   const SESSIONS = new Map();
-  // access log (also persisted to disk)
   const ACCESS_LOG = [];
   const ACCESS_LOG_PATH = path.join(PROJECT_ROOT, 'auth_access.log');
 
@@ -261,7 +219,6 @@ function createAuthApp() {
     try {
       const e = Object.assign({ time: Date.now() }, entry);
       ACCESS_LOG.push(e);
-      // keep only recent 1000 in memory
       if (ACCESS_LOG.length > 1000) ACCESS_LOG.shift();
       const line = JSON.stringify(e);
       fs.appendFile(ACCESS_LOG_PATH, line + '\n', (err) => { if (err) console.error('failed write access log', err && err.message ? err.message : err); });
@@ -270,7 +227,6 @@ function createAuthApp() {
     }
   }
 
-  // rate-limiting for UI login: track failed attempts by username or IP
   const FAILED_ATTEMPTS = new Map();
   const LOGIN_MAX_ATTEMPTS = parseInt(process.env.AUTH_LOGIN_MAX || '5', 10); // default 5
   const LOGIN_WINDOW_MS = parseInt(process.env.AUTH_LOGIN_WINDOW_MS || String(60 * 60 * 1000), 10); // default 1 hour
@@ -305,7 +261,6 @@ function createAuthApp() {
     try { return attemptsCount(key) >= LOGIN_MAX_ATTEMPTS; } catch (e) { return false; }
   }
 
-  // helper to parse our cookie
   function _getUiCookie(req) {
     const raw = req.headers && req.headers.cookie;
     if (!raw) return null;
@@ -316,13 +271,11 @@ function createAuthApp() {
     return null;
   }
 
-  // Require UI auth for sensitive endpoints
   function requireUiAuth(req, res, next) {
     const token = _getUiCookie(req);
     if (!token) return res.status(401).json({ error: 'unauthorized' });
     const sess = UI_SESSIONS.get(token);
     if (!sess) return res.status(401).json({ error: 'unauthorized' });
-    // attach username for convenience
     req._authUsername = sess.username;
     return next();
   }
@@ -332,17 +285,14 @@ function createAuthApp() {
     // fallback to single AUTH_UI_PASSWORD for legacy setups
     const usersCfg = process.env.AUTH_UI_USERS || '';
     const singlePw = process.env.AUTH_UI_PASSWORD || '';
-    // if no auth configured, allow through
     if (!usersCfg && !singlePw) return next();
-    // allow the login POST path without cookie
     if (req.path === '/login' || req.path === '/login.html') return next();
     const token = _getUiCookie(req);
     if (token) {
       const sess = UI_SESSIONS.get(token);
       if (sess) return next();
     }
-    // serve a minimal multi-user login page
-    // if a static login.html exists in the public folder, serve it (nicer UI)
+
     try {
       const loginPath = path.join(__dirname, 'public', 'login.html');
       if (fs.existsSync(loginPath)) {
@@ -351,26 +301,19 @@ function createAuthApp() {
         return res.end(html);
       }
     } catch (e) {}
-    // fallback to a minimal inline page
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.end(`<!doctype html><html><head><meta charset="utf-8"><title>Login</title></head><body style="font-family:system-ui,Arial;margin:20px"><h3>Auth UI Login</h3><form method="POST" action="/auth/ui/login"><div style="margin-bottom:8px"><input name="username" type="text" placeholder="Username" style="padding:8px;width:300px" /></div><div style="margin-bottom:8px"><input name="password" type="password" placeholder="Password" style="padding:8px;width:300px" /></div><button type="submit" style="padding:8px 12px">Login</button></form></body></html>`);
   });
 
-  // serve simple auth UI (do not serve dotfiles)
   app.use('/auth/ui', express.static(path.join(__dirname, 'public'), { dotfiles: 'ignore' }));
 
-  // login handler for the UI form (supports multi-user via AUTH_UI_USERS)
   app.post('/auth/ui/login', express.urlencoded({ extended: false }), (req, res) => {
     const usersCfg = process.env.AUTH_UI_USERS;
     const singlePw = process.env.AUTH_UI_PASSWORD;
     const providedUser = String(req.body.username || '').trim();
     const providedPw = String(req.body.password || '');
-
-    // decide rate-limit key: prefer username if provided, otherwise use IP
     const ip = _getRemoteIp(req);
     const rlKey = providedUser || ip || 'unknown';
-
-    // check block
     if (isBlocked(rlKey)) {
       try { appendAccessLog({ type: 'ui_login_blocked', username: providedUser || null, ip }); } catch (e) {}
       const accept = (req.headers && req.headers.accept) ? req.headers.accept : '';
@@ -403,8 +346,6 @@ function createAuthApp() {
       if (isAjax) return res.status(401).json({ error: 'invalid_credentials', message: 'Credenziali non valide' });
       return res.redirect('/auth/ui/login.html?error=1');
     }
-
-    // on success, clear failed attempts for this key
     try { clearAttempts(rlKey); } catch (e) {}
     const token = makeId();
     UI_SESSIONS.set(token, { createdAt: Date.now(), username });
@@ -412,13 +353,11 @@ function createAuthApp() {
       const ip = _getRemoteIp(req);
       appendAccessLog({ type: 'ui_login', username, ip });
     } catch (e) {}
-    // set cookie for 24h (Path=/ so it's sent for all auth UI requests)
     const maxAge = 24 * 60 * 60 * 1000;
     res.setHeader('Set-Cookie', `darkchair_ui=${token}; Path=/; HttpOnly; Max-Age=${Math.floor(maxAge/1000)}`);
     return res.redirect('/auth/ui');
   });
 
-  // Public endpoint: check remaining login attempts for a username or caller IP
   app.get('/auth/login/attempts', (req, res) => {
     try {
       const username = String(req.query.username || '').trim();
@@ -466,7 +405,6 @@ function createAuthApp() {
         '--disable-blink-features=AutomationControlled'
       ];
 
-      // only add Chrome-specific remote-debugging flags when using Chrome
       if (product === 'chrome') {
         launchArgs.push(`--remote-debugging-port=${debugPort}`);
         launchArgs.push(`--remote-debugging-address=${debugHost}`);
@@ -474,15 +412,12 @@ function createAuthApp() {
 
       const launchOpts = { headless, args: launchArgs, product };
       if (execPath) launchOpts.executablePath = execPath;
-      // support per-session persistent profile directories to allow multiple concurrent sessions
-      // baseProfileEnv may point to a template profile; we'll copy it per-session into PROJECT_ROOT/.profiles/<id>
       const profileEnv = process.env.PUPPETEER_PROFILE || process.env.PUPPETEER_USER_DATA_DIR || null;
       const profilesRoot = path.join(PROJECT_ROOT, '.profiles');
       try { if (!fs.existsSync(profilesRoot)) fs.mkdirSync(profilesRoot, { recursive: true }); } catch (e) {}
       const sessionProfileDir = path.join(profilesRoot, id);
       let ownedProfile = false;
       try {
-        // helper: remove known lock/socket files from a directory tree
         const removeLockFiles = (root) => {
           try {
             const names = ['SingletonLock', 'SingletonSocket', 'lock', 'LOCK', 'parent.lock'];
@@ -505,24 +440,19 @@ function createAuthApp() {
         };
 
         if (profileEnv) {
-          // resolve relative paths against project root
           const resolved = path.isAbsolute(profileEnv) ? profileEnv : path.join(PROJECT_ROOT, profileEnv);
           if (fs.existsSync(resolved)) {
-            // copy template profile into session directory (may be large)
             try {
               fs.cpSync(resolved, sessionProfileDir, { recursive: true });
-              // remove any leftover lock/socket files copied from the template
               removeLockFiles(sessionProfileDir);
               ownedProfile = true;
             } catch (e) {
               try { fs.mkdirSync(sessionProfileDir, { recursive: true }); ownedProfile = true; } catch (err) {}
             }
           } else {
-            // no template found, still create an empty session dir
             try { fs.mkdirSync(sessionProfileDir, { recursive: true }); ownedProfile = true; } catch (e) {}
           }
         } else {
-          // no base profile specified, create isolated session dir to avoid conflicts
           try { fs.mkdirSync(sessionProfileDir, { recursive: true }); ownedProfile = true; } catch (e) {}
         }
       } catch (e) {}
@@ -530,11 +460,9 @@ function createAuthApp() {
 
       const browser = await puppeteer.launch(launchOpts);
       const page = await browser.newPage();
-      // set UA and override automation flags before navigation
       await page.setUserAgent(userAgent);
       await page.evaluateOnNewDocument(() => {
         try {
-          // Fake plugins array (basic shape similar to Chrome)
           const fakePlugins = [
             { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
             { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: 'Portable Document Format' }
@@ -544,20 +472,12 @@ function createAuthApp() {
           pluginArray.namedItem = function(name) { return this.find(p => p.name === name) || null; };
           Object.defineProperty(pluginArray, 'length', { get: function() { return Array.prototype.length.call(this); }, configurable: true });
           Object.defineProperty(navigator, 'plugins', { get: () => pluginArray, configurable: true });
-
-          // Basic mimeTypes stub
           const fakeMimeTypes = [];
           //Object.defineProperty(navigator, 'mimeTypes', { get: () => fakeMimeTypes, configurable: true });
-
-          // window.chrome
           window.chrome = window.chrome || { runtime: {} };
-
-          // hardware / device properties
           Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 4, configurable: true });
           Object.defineProperty(navigator, 'deviceMemory', { get: () => 8, configurable: true });
           Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0, configurable: true });
-
-          // Permissions.query shim for notifications
           try {
             if (navigator.permissions && navigator.permissions.query) {
               const origQuery = navigator.permissions.query.bind(navigator.permissions);
@@ -569,8 +489,6 @@ function createAuthApp() {
               };
             }
           } catch (e) {}
-
-          // Spoof WebGL vendor/renderer
           try {
             const getParameter = WebGLRenderingContext.prototype.getParameter;
             WebGLRenderingContext.prototype.getParameter = function(param) {
@@ -579,13 +497,10 @@ function createAuthApp() {
               return getParameter.call(this, param);
             };
           } catch (e) {}
-
         } catch (e) {}
       });
-      // Additional stronger spoofing injected on each new document
       await page.evaluateOnNewDocument(() => {
         try {
-          // navigator.userAgentData emulation
           try {
             if (typeof navigator.userAgentData === 'undefined') {
               Object.defineProperty(navigator, 'userAgentData', { get: () => ({
@@ -600,11 +515,7 @@ function createAuthApp() {
               }), configurable: true });
             }
           } catch (e) {}
-
-          // window.chrome helpers
           try { window.chrome = window.chrome || {}; window.chrome.runtime = window.chrome.runtime || {}; window.chrome.webstore = window.chrome.webstore || {}; } catch(e){}
-
-          // Strengthen permissions.query shim
           try {
             const perms = navigator.permissions;
             if (perms && perms.query) {
@@ -615,8 +526,6 @@ function createAuthApp() {
               };
             }
           } catch (e) {}
-
-          // Attempt to mask patched functions as native
           try {
             const nativeToString = Function.prototype.toString;
             const oldToString = nativeToString.call.bind(nativeToString);
@@ -629,8 +538,6 @@ function createAuthApp() {
               return oldToString(this);
             };
           } catch (e) {}
-
-          // Provide more realistic Plugin/MimeType objects
           try {
             const makePlugin = (p) => ({ name: p.name || '', filename: p.filename || '', description: p.description || '' });
             const fake = [];
@@ -642,7 +549,6 @@ function createAuthApp() {
       });
       await page.goto('https://accounts.google.com/ServiceLogin?service=youtube', { waitUntil: 'networkidle2' });
       SESSIONS.set(id, { browser, page, startedAt: Date.now(), profileDir: fs.existsSync(sessionProfileDir) ? sessionProfileDir : null, ownedProfile });
-      // Do not leak internal debug endpoints to callers. Return only session id and message.
       res.json({ id, message: 'Browser opened. Complete login in the opened window on the server.' });
     } catch (e) {
       const msg = e && e.message ? e.message : String(e);
@@ -651,7 +557,7 @@ function createAuthApp() {
     }
   });
 
-      app.post('/auth/export/:id', requireUiAuth, async (req, res) => {
+    app.post('/auth/export/:id', requireUiAuth, async (req, res) => {
     const id = req.params.id;
     const sess = SESSIONS.get(id);
     if (!sess) return res.status(404).json({ error: 'session not found' });
@@ -669,14 +575,11 @@ function createAuthApp() {
       }
       const out = cookiesToNetscape(list);
       fs.writeFileSync(COOKIES_FILE, out, 'utf8');
-      // If the session had its own profileDir and it was created by us, keep the browser open
-      // otherwise (no profileDir) close browser and remove session.
       const sessProfile = sess.profileDir || null;
       if (!sessProfile) {
         try { await browser.close(); } catch (e) {}
         SESSIONS.delete(id);
       } else {
-        // keep session alive and update timestamp
         sess.startedAt = Date.now();
         SESSIONS.set(id, sess);
       }
@@ -694,7 +597,6 @@ function createAuthApp() {
     res.json({ id, startedAt: sess.startedAt });
   });
 
-  // GET /auth/sessions -> list active sessions
   app.get('/auth/sessions', requireUiAuth, (req, res) => {
     try {
       const arr = [];
@@ -709,11 +611,8 @@ function createAuthApp() {
     }
   });
 
-  // Admin: read recent access log entries
-  // If AUTH_ADMIN_USERS is set (comma-separated usernames), only those users may read the log.
   app.get('/auth/admin/logs', requireUiAuth, (req, res) => {
     try {
-      // require UI auth cookie
       const token = _getUiCookie(req);
       if (!token) return res.status(401).json({ error: 'unauthorized' });
       const sess = UI_SESSIONS.get(token);
@@ -731,7 +630,6 @@ function createAuthApp() {
     }
   });
 
-    // GET /auth/tests/:id -> run stealth detection checks on the page
     async function runStealthChecks(page) {
       try {
         const result = await page.evaluate(async () => {
@@ -752,9 +650,7 @@ function createAuthApp() {
               out.notificationsPermission = null;
             }
           } catch (e) { out.notificationsPermission = 'error'; }
-          // detect webdriver in userAgent
           out.uaContainsHeadless = /HeadlessChrome|PhantomJS/i.test(navigator.userAgent);
-          // basic fonts/webgl checks could be added here
           return out;
         });
         return { ok: true, checks: result };
@@ -775,7 +671,6 @@ function createAuthApp() {
       }
     });
 
-    // POST /auth/navigate/:id -> navigate the session page to a given URL
     app.post('/auth/navigate/:id', requireUiAuth, async (req, res) => {
       const id = req.params.id;
       const sess = SESSIONS.get(id);
@@ -793,7 +688,6 @@ function createAuthApp() {
       }
     });
 
-    // POST /auth/login/:id -> attempt to fill email/password on Google login flow
     app.post('/auth/login/:id', requireUiAuth, async (req, res) => {
       const id = req.params.id;
       const sess = SESSIONS.get(id);
@@ -803,22 +697,18 @@ function createAuthApp() {
         const body = req.body || {};
         const email = body.email || ''; const password = body.password || '';
         if (!email || !password) return res.status(400).json({ error: 'missing email or password' });
-
-        // Try to fill the email field and proceed
         try {
           await page.waitForSelector('input[type="email"]', { timeout: 10000 });
           await page.focus('input[type="email"]');
           await page.keyboard.type(email, { delay: 50 });
-          // click identifier next if present
           try { await page.click('#identifierNext'); } catch (e) {}
           try { await page.click('button[jsname="LgbsSe"]'); } catch (e) {}
-          // small pause for transition
           await page.waitForTimeout(1000);
         } catch (e) {
-          // ignore - maybe email already filled or different flow
+          console.log('auth-server: email input not found during login attempt');
+          return res.status(400).json({ error: 'email field not found', detail: e && e.message ? e.message : String(e) });
         }
 
-        // Wait for password input
         try {
           await page.waitForSelector('input[type="password"]', { timeout: 10000 });
           await page.focus('input[type="password"]');
@@ -826,12 +716,10 @@ function createAuthApp() {
           try { await page.click('#passwordNext'); } catch (e) {}
           try { await page.click('button[jsname="LgbsSe"]'); } catch (e) {}
         } catch (e) {
-          // if password not found, respond with partial success
           console.warn('auth-server: password input not found during login attempt');
           return res.status(400).json({ error: 'password field not found', detail: e && e.message ? e.message : String(e) });
         }
 
-        // give some time for navigation to complete
         await page.waitForTimeout(2000);
         return res.json({ ok: true, message: 'login submitted — check session window for any additional verification' });
       } catch (e) {
@@ -839,8 +727,7 @@ function createAuthApp() {
         return res.status(500).json({ error: 'login failed', detail: e && e.message ? e.message : String(e) });
       }
     });
-  // GET /auth/screenshot/:id -> single PNG screenshot of the auth page
-  app.get('/auth/screenshot/:id', requireUiAuth, async (req, res) => {
+    app.get('/auth/screenshot/:id', requireUiAuth, async (req, res) => {
     const id = req.params.id;
     const sess = SESSIONS.get(id);
     if (!sess) return res.status(404).json({ error: 'session not found' });
@@ -856,7 +743,6 @@ function createAuthApp() {
     }
   });
 
-  // GET /auth/stream/:id -> multipart/x-mixed-replace (MJPEG) stream of repeated screenshots
   app.get('/auth/stream/:id', requireUiAuth, async (req, res) => {
     const id = req.params.id;
     const sess = SESSIONS.get(id);
@@ -875,13 +761,11 @@ function createAuthApp() {
     const captureAndWrite = async () => {
       if (stopped) return;
       try {
-        // Re-resolve the session in case it was closed/removed elsewhere
         const current = SESSIONS.get(id);
         if (!current) {
           stopped = true; try { res.end(); } catch (er) {}
           return;
         }
-        // If the page or browser was closed elsewhere, stop the stream
         if (!current.page || (typeof current.page.isClosed === 'function' && current.page.isClosed()) || !current.browser || (typeof current.browser.isConnected === 'function' && !current.browser.isConnected())) {
           stopped = true; try { res.end(); } catch (er) {}
           return;
@@ -895,25 +779,20 @@ function createAuthApp() {
         res.write('\r\n');
       } catch (e) {
         const msg = e && e.message ? e.message : String(e);
-        // Common benign reasons to stop: session/page closed or protocol errors during shutdown
         if (/Session closed|Session is closed|Target closed|Protocol error/i.test(msg)) {
           stopped = true;
           try { res.end(); } catch (er) {}
           return;
         }
         console.error('auth-server: stream capture error', msg);
-        // On other errors, end the stream gracefully
         stopped = true;
         try { res.end(); } catch (er) {}
       }
     };
-
-    // initial capture then periodic
     await captureAndWrite();
     const timer = setInterval(() => { if (!stopped) captureAndWrite(); else clearInterval(timer); }, intervalMs);
   });
 
-  // POST /auth/keyboard/:id -> { type: 'type'|'press', text, key }
   app.post('/auth/keyboard/:id', requireUiAuth, async (req, res) => {
     const id = req.params.id;
     const sess = SESSIONS.get(id);
@@ -936,8 +815,6 @@ function createAuthApp() {
     }
   });
 
-  // POST /auth/mouse/:id -> { action: 'click'|'move'|'down'|'up', px, py, button }
-  // px/py are percentages in [0,1] relative to the page viewport (or image shown)
   app.post('/auth/mouse/:id', requireUiAuth, async (req, res) => {
     const id = req.params.id;
     const sess = SESSIONS.get(id);
@@ -948,7 +825,6 @@ function createAuthApp() {
       const action = body.action || 'click';
       const button = body.button || 'left';
 
-      // determine viewport size
       let vw = null;
       let vh = null;
       if (page.viewport && page.viewport()) {
@@ -987,7 +863,6 @@ function createAuthApp() {
     const sess = SESSIONS.get(id);
     if (!sess) return res.status(404).json({ error: 'session not found' });
     try { await sess.browser.close(); } catch (e) {}
-    // cleanup per-session profile dir if we created it
     try {
       if (sess && sess.profileDir && sess.ownedProfile) {
         try { fs.rmSync(sess.profileDir, { recursive: true, force: true }); } catch (e) {}
@@ -1005,7 +880,7 @@ async function startAuthServer(port = process.env.AUTH_PORT || 3001) {
   return new Promise((resolve, reject) => {
     const s = app.listen(port, (err) => {
       if (err) return reject(err);
-      console.log('darkchair_api_yt auth-server listening on', port);
+      console.log('darkchair_api_youtube auth-server listening on', port);
       resolve(s);
     });
   });
