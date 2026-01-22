@@ -75,7 +75,12 @@ function stream(url, opts = {}) {
     const _flushStderr = (final = false) => {
       try {
         if (!_stderrBuf) return;
-        const msg = _stderrBuf.replace(/\s+/g, ' ').trim();
+        let msg = _stderrBuf.replace(/\s+/g, ' ').trim();
+        // If multiple '[download]' progress fragments were concatenated, keep only the last one
+        if (msg.includes('[download]')) {
+          const last = msg.lastIndexOf('[download]');
+          msg = msg.slice(last).trim();
+        }
         if (!msg) return;
         const prefix = 'darkchair_api_youtube yt-dlp stderr: ';
         const out = prefix + msg;
