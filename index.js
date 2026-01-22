@@ -68,14 +68,27 @@ function stream(url, opts = {}) {
       console.error('darkchair_api_youtube: yt-dlp spawn error for', url, e && e.message ? e.message : e);
     });
 
-    // Buffer stderr chunks and flush them as a single-line log to reduce noisy multiline output
+    // Buffer stderr chunks and flush them as an in-place console line (carriage return)
     let _stderrBuf = '';
     let _stderrTimer = null;
-    const _flushStderr = () => {
+    let _lastLineLen = 0;
+    const _flushStderr = (final = false) => {
       try {
         if (!_stderrBuf) return;
         const msg = _stderrBuf.replace(/\s+/g, ' ').trim();
-        if (msg) console.error('darkchair_api_youtube yt-dlp stderr:', msg);
+        if (!msg) return;
+        const prefix = 'darkchair_api_youtube yt-dlp stderr: ';
+        const out = prefix + msg;
+        // pad with spaces if new out is shorter than previous to clear residual chars
+        let pad = '';
+        if (_lastLineLen > out.length) pad = ' '.repeat(_lastLineLen - out.length);
+        if (final) {
+          try { process.stderr.write('\r' + out + pad + '\n'); } catch (e) { console.error(prefix + msg); }
+          _lastLineLen = 0;
+        } else {
+          try { process.stderr.write('\r' + out + pad); } catch (e) { console.error(prefix + msg); }
+          _lastLineLen = out.length;
+        }
       } catch (e) {
         try { console.error('darkchair_api_youtube stderr flush error', e && e.message ? e.message : e); } catch (er) {}
       } finally {
@@ -89,13 +102,13 @@ function stream(url, opts = {}) {
         if (!text) return;
         if (_stderrBuf) _stderrBuf += ' | ' + text; else _stderrBuf = text;
         if (_stderrTimer) clearTimeout(_stderrTimer);
-        _stderrTimer = setTimeout(_flushStderr, 120);
+        _stderrTimer = setTimeout(() => _flushStderr(false), 120);
       } catch (e) {
         // fallback to simple logging
         try { console.error('darkchair_api_youtube yt-dlp stderr:', String(d).trim()); } catch (er) {}
       }
     });
-    proc.on('close', () => { _flushStderr(); });
+    proc.on('close', () => { _flushStderr(true); });
 
     if (proc.stdout) proc.stdout.pipe(outStream, { end: false });
     proc.on('close', (code, signal) => {
