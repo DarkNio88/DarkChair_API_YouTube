@@ -68,10 +68,34 @@ function stream(url, opts = {}) {
       console.error('darkchair_api_youtube: yt-dlp spawn error for', url, e && e.message ? e.message : e);
     });
 
+    // Buffer stderr chunks and flush them as a single-line log to reduce noisy multiline output
+    let _stderrBuf = '';
+    let _stderrTimer = null;
+    const _flushStderr = () => {
+      try {
+        if (!_stderrBuf) return;
+        const msg = _stderrBuf.replace(/\s+/g, ' ').trim();
+        if (msg) console.error('darkchair_api_youtube yt-dlp stderr:', msg);
+      } catch (e) {
+        try { console.error('darkchair_api_youtube stderr flush error', e && e.message ? e.message : e); } catch (er) {}
+      } finally {
+        _stderrBuf = '';
+        if (_stderrTimer) { clearTimeout(_stderrTimer); _stderrTimer = null; }
+      }
+    };
     proc.stderr.on('data', (d) => {
-      const msg = String(d).trim();
-      if (msg) console.error('darkchair_api_youtube yt-dlp stderr:', msg);
+      try {
+        let text = String(d || '').replace(/\r?\n/g, ' ').trim();
+        if (!text) return;
+        if (_stderrBuf) _stderrBuf += ' | ' + text; else _stderrBuf = text;
+        if (_stderrTimer) clearTimeout(_stderrTimer);
+        _stderrTimer = setTimeout(_flushStderr, 120);
+      } catch (e) {
+        // fallback to simple logging
+        try { console.error('darkchair_api_youtube yt-dlp stderr:', String(d).trim()); } catch (er) {}
+      }
     });
+    proc.on('close', () => { _flushStderr(); });
 
     if (proc.stdout) proc.stdout.pipe(outStream, { end: false });
     proc.on('close', (code, signal) => {
