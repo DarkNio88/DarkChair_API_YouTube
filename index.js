@@ -100,7 +100,7 @@ function stream(url, opts = {}) {
       try {
         let text = String(d || '').replace(/\r?\n/g, ' ').trim();
         if (!text) return;
-        if (_stderrBuf) _stderrBuf += ' | ' + text; else _stderrBuf = text;
+        if (_stderrBuf) _stderrBuf += ' ' + text; else _stderrBuf = text;
         if (_stderrTimer) clearTimeout(_stderrTimer);
         _stderrTimer = setTimeout(() => _flushStderr(false), 120);
       } catch (e) {
