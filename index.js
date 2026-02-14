@@ -615,7 +615,7 @@ function createAuthApp() {
 
         } catch (e) {}
       });
-      await page.goto('https://accounts.google.com/ServiceLogin?service=youtube', { waitUntil: 'networkidle2' });
+      await page.goto('https://accounts.google.com/ServiceLogin?service=youtube', { waitUntil: 'networkidle2', timeout: 120000 });
       SESSIONS.set(id, { browser, page, startedAt: Date.now(), profileDir: fs.existsSync(sessionProfileDir) ? sessionProfileDir : null, ownedProfile });
       res.json({ id, message: 'Browser opened. Complete login in the opened window on the server.' });
     } catch (e) {
@@ -748,7 +748,7 @@ function createAuthApp() {
         const url = body.url || req.query.url;
         if (!url || typeof url !== 'string') return res.status(400).json({ error: 'missing url' });
         if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'invalid url scheme' });
-        await sess.page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+        await sess.page.goto(url, { waitUntil: 'networkidle2', timeout: 120000 });
         return res.json({ ok: true, url });
       } catch (e) {
         console.error('auth-server: navigate error', e && e.message ? e.message : e);
