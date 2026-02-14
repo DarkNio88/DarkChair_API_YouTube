@@ -470,6 +470,8 @@ function createAuthApp() {
       }
 
       const launchOpts = { headless, args: launchArgs, product };
+      // allow configuring launch timeout via env, default to 120s to avoid 30s connection timeouts
+      try { launchOpts.timeout = parseInt(process.env.PUPPETEER_LAUNCH_TIMEOUT || '120000', 10); } catch (e) { launchOpts.timeout = 120000; }
       try {
         let resolvedExec = null;
         if (execPath) resolvedExec = execPath;
@@ -620,7 +622,7 @@ function createAuthApp() {
       res.json({ id, message: 'Browser opened. Complete login in the opened window on the server.' });
     } catch (e) {
       const msg = e && e.message ? e.message : String(e);
-      console.error('auth-server: start error', msg, e && e.stack ? e.stack : '');
+      try { console.error('auth-server: start error', msg, e && e.stack ? e.stack : '', 'launchOpts=', JSON.stringify(launchOpts)); } catch (er) { console.error('auth-server: start error', msg, e && e.stack ? e.stack : ''); }
       res.status(500).json({ error: 'failed to start browser', detail: msg });
     }
   });
