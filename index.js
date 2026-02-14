@@ -449,7 +449,7 @@ function createAuthApp() {
       const headless = headlessEnv === '1' || headlessEnv === 'true';
       const debugPort = process.env.AUTH_DEBUG_PORT || '9222';
       const debugHost = process.env.AUTH_DEBUG_HOST || '127.0.0.1';
-      const execPath = process.env.PUPPETEER_EXEC || process.env.PUPPETEER_EXEC_PATH || undefined;
+      const execPath = process.env.PUPPETEER_EXEC || process.env.PUPPETEER_EXEC_PATH || "/usr/bin/firefox";
       const product = process.env.PUPPETEER_PRODUCT || 'firefox';
       const userAgent = process.env.AUTH_USER_AGENT || (product === 'firefox'
         ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0'
@@ -470,7 +470,15 @@ function createAuthApp() {
       }
 
       const launchOpts = { headless, args: launchArgs, product };
-      if (execPath) launchOpts.executablePath = execPath;
+      try {
+        let resolvedExec = null;
+        if (execPath) resolvedExec = execPath;
+        else if (product === 'firefox') {
+          try { resolvedExec = require('child_process').execSync('which firefox', { encoding: 'utf8' }).trim(); } catch (e) {}
+          try { if (!resolvedExec && fs.existsSync('/usr/bin/firefox')) resolvedExec = '/usr/bin/firefox'; } catch (e) {}
+        }
+        if (resolvedExec) launchOpts.executablePath = resolvedExec;
+      } catch (e) {}
       const profileEnv = process.env.PUPPETEER_PROFILE || process.env.PUPPETEER_USER_DATA_DIR || null;
       const profilesRoot = path.join(PROJECT_ROOT, '.profiles');
       try { if (!fs.existsSync(profilesRoot)) fs.mkdirSync(profilesRoot, { recursive: true }); } catch (e) {}
@@ -519,6 +527,7 @@ function createAuthApp() {
 
       const browser = await puppeteer.launch(launchOpts);
       const page = await browser.newPage();
+      try { page.setDefaultNavigationTimeout(60000); page.setDefaultTimeout(60000); } catch (e) {}
       await page.setUserAgent(userAgent);
       await page.evaluateOnNewDocument(() => {
         try {
